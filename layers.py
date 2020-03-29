@@ -38,7 +38,7 @@ class _DomainAdaptiveBatchNorm(DomainAdaptiveModule):
     # which means a 0.9 weight to the running average. I'm not sure if this really
     # achieves domain-specific normalization.
 
-    # Setting num_domains = 1 makes this into vanilla batchnorm
+    # Setting num_domains = 1 makes this into vanilla batchnorm.
     # Expects domains indexed as integers starting from 0.
     # We rely on the buffer .idx_domain to set and retrieve the domain index, so
     # we don't have to add another parameter to .forward() for better compatibility
@@ -59,23 +59,23 @@ class _DomainAdaptiveBatchNorm(DomainAdaptiveModule):
         self.affine = affine
         self.track_running_stats = track_running_stats
         if self.affine:
-            for domain in range(self.num_domains):
-                self.register_parameter('weight_{}'.format(str(domain)), nn.Parameter(torch.Tensor(num_features)))
-                self.register_parameter('bias_{}'.format(str(domain)), nn.Parameter(torch.Tensor(num_features)))
+            for idx in (str(domain) for domain in range(self.num_domains)):
+                self.register_parameter('weight_{}'.format(idx), nn.Parameter(torch.Tensor(num_features)))
+                self.register_parameter('bias_{}'.format(idx), nn.Parameter(torch.Tensor(num_features)))
         else:
-            for domain in range(self.num_domains):
-                self.register_parameter('weight_{}'.format(str(domain)), None)
-                self.register_parameter('weight_{}'.format(str(domain)), None)
+            for idx in (str(domain) for domain in range(self.num_domains)):
+                self.register_parameter('weight_{}'.format(idx), None)
+                self.register_parameter('weight_{}'.format(idx), None)
         if self.track_running_stats:
-            for domain in range(self.num_domains):
-                self.register_buffer('running_mean_{}'.format(str(domain)), torch.zeros(num_features))
-                self.register_buffer('running_var_{}'.format(str(domain)), torch.ones(num_features))
-                self.register_buffer('num_batches_tracked_{}'.format(str(domain)), torch.zeros(1, dtype=torch.long))
+            for idx in (str(domain) for domain in range(self.num_domains)):
+                self.register_buffer('running_mean_{}'.format(idx), torch.zeros(num_features))
+                self.register_buffer('running_var_{}'.format(idx), torch.ones(num_features))
+                self.register_buffer('num_batches_tracked_{}'.format(idx), torch.zeros(1, dtype=torch.long))
         else:
-            for domain in range(self.num_domains):
-                self.register_parameter('running_mean_{}'.format(str(domain)), None)
-                self.register_parameter('running_var_{}'.format(str(domain)), None)
-                self.register_parameter('num_batches_tracked_{}'.format(str(domain)), None)
+            for idx in (str(domain) for domain in range(self.num_domains)):
+                self.register_parameter('running_mean_{}'.format(idx), None)
+                self.register_parameter('running_var_{}'.format(idx), None)
+                self.register_parameter('num_batches_tracked_{}'.format(idx), None)
         self.reset_parameters()
 
         # print(getattr(self, 'num_batches_tracked_{}'.format(str(0))))
@@ -83,17 +83,17 @@ class _DomainAdaptiveBatchNorm(DomainAdaptiveModule):
     def reset_running_stats(self):
         if self.track_running_stats:
             # Remember torch.tensor always copies data. Resetting this way avoids the copy.
-            for domain in range(self.num_domains):
-                getattr(self, 'running_mean_{}'.format(str(domain))).zero_()
-                getattr(self, 'running_var_{}'.format(str(domain))).fill_(1)
-                getattr(self, 'num_batches_tracked_{}'.format(str(domain))).zero_()
+            for idx in (str(domain) for domain in range(self.num_domains)):
+                getattr(self, 'running_mean_{}'.format(idx)).zero_()
+                getattr(self, 'running_var_{}'.format(idx)).fill_(1)
+                getattr(self, 'num_batches_tracked_{}'.format(idx)).zero_()
 
     def reset_parameters(self):
         self.reset_running_stats()
         if self.affine:
-            for domain in range(self.num_domains):
-                nn.init.ones_(getattr(self, 'weight_{}'.format(str(domain))))
-                nn.init.zeros_(getattr(self, 'bias_{}'.format(str(domain))))
+            for idx in (str(domain) for domain in range(self.num_domains)):
+                nn.init.ones_(getattr(self, 'weight_{}'.format(idx)))
+                nn.init.zeros_(getattr(self, 'bias_{}'.format(idx)))
 
     def _check_input_dim(self, input): # Unmodified
         raise NotImplementedError
@@ -109,26 +109,26 @@ class _DomainAdaptiveBatchNorm(DomainAdaptiveModule):
             raise IndexError('Number of domains set to {} but domain index {} requested.'
                 .format(self.num_domains, self.idx_domain))
 
-        idx = self.idx_domain.item() # idx_domain is a tensor, so unpack with .item() to get the int
+        idx = str(self.idx_domain.item()) # idx_domain is a tensor, so unpack with .item() to get the int
         if self.momentum is None:
             exponential_average_factor = 0.0
         else:
             exponential_average_factor = self.momentum
         if self.training and self.track_running_stats:
-            if getattr(self, 'num_batches_tracked_{}'.format(str(idx))) is not None:
-                setattr(self, 'num_batches_tracked_{}'.format(str(idx)),
-                        getattr(self, 'num_batches_tracked_{}'.format(str(idx))) + 1)
+            if getattr(self, 'num_batches_tracked_{}'.format(idx)) is not None:
+                setattr(self, 'num_batches_tracked_{}'.format(idx),
+                        getattr(self, 'num_batches_tracked_{}'.format(idx)) + 1)
                 if self.momentum is None:
-                    exponential_average_factor = 1.0 / float(getattr(self, 'num_batches_tracked_{}'.format(str(idx))))
+                    exponential_average_factor = 1.0 / float(getattr(self, 'num_batches_tracked_{}'.format(idx)))
                 else:
                     exponential_average_factor = self.momentum
 
         return F.batch_norm(
             input,
-            getattr(self, 'running_mean_{}'.format(str(idx))),
-            getattr(self, 'running_var_{}'.format(str(idx))),
-            getattr(self, 'weight_{}'.format(str(idx))),
-            getattr(self, 'bias_{}'.format(str(idx))),
+            getattr(self, 'running_mean_{}'.format(idx)),
+            getattr(self, 'running_var_{}'.format(idx)),
+            getattr(self, 'weight_{}'.format(idx)),
+            getattr(self, 'bias_{}'.format(idx)),
             self.training or not self.track_running_stats,
             exponential_average_factor,
             self.eps

@@ -13,17 +13,16 @@ def list_domain_adaptive_layers(module:nn.Module, ls=None) -> list:
         if isinstance(sub_module, DomainAdaptiveModule):
             ls.append(sub_module)
         list_domain_adaptive_layers(sub_module, ls) # Depth-first recursion
-    yield ls
+    return ls
 
 
-def convert_to_adaptive_batchnorm(module:nn.Module, num_domains) -> nn.Module:
+def convert_to_adaptive_batchnorm(module:nn.Module, num_domains:int) -> nn.Module:
     r"""Recursively steps through a module, converting in-place BatchNorm1d,
     2d, 3d layers into the adaptive equivalent. If the model was trained, then
     this initializes all domains' beta and gamma in the DABatchNorm layer to the
     trained beta and gamma of the original batchnorm layer.
     """
-    # Stores list of adaptive batchnorm layers in module.
-    # Use it to set idx_domain on all such layers when changing domains.
+
     for name, sub_module in module._modules.items():
         is_bn1d, is_bn2d, is_bn3d = False, False, False
         if isinstance(sub_module, nn.BatchNorm1d):
@@ -55,11 +54,11 @@ def convert_to_adaptive_batchnorm(module:nn.Module, num_domains) -> nn.Module:
                     track_running_stats)
 
             if affine:
-                for idx in range(num_domains):
-                    setattr(replacement_module, 'weight_{}'.format(str(idx)), sub_module.weight)
-                    getattr(replacement_module, 'weight_{}'.format(str(idx))).requires_grad = sub_module.weight.requires_grad
-                    setattr(replacement_module, 'bias_{}'.format(str(idx)), sub_module.bias)
-                    getattr(replacement_module, 'bias_{}'.format(str(idx))).requires_grad = sub_module.bias.requires_grad
+                for idx in (str(domain) for domain in range(num_domains)):
+                    setattr(replacement_module, 'weight_{}'.format(idx), sub_module.weight)
+                    getattr(replacement_module, 'weight_{}'.format(idx)).requires_grad = sub_module.weight.requires_grad
+                    setattr(replacement_module, 'bias_{}'.format(idx), sub_module.bias)
+                    getattr(replacement_module, 'bias_{}'.format(idx)).requires_grad = sub_module.bias.requires_grad
 
             module._modules[name] = replacement_module
 
