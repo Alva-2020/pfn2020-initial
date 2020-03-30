@@ -9,7 +9,7 @@ import torchvision.transforms as transforms
 
 import numpy as np
 
-from layers import DomainAdaptiveBatchNorm1d, L2NormScaled
+from layers import DomainAdaptiveBatchNorm1d, L2NormScaled, PrototypeSquaredEuclidean, PrototypeCosine
 import utils
 
 
@@ -68,7 +68,7 @@ class Model(nn.Module):
     # num_domains  : How many domains is the model aware of. Should be 2 unless
     #                we are doing multi-DA
     # base_model   : Model used for the feature extractor.
-    # label_groups : Dict<int,set<int>>. Keys are label groups. Values are its class members.
+    # label_groups : Dict<int,set<int>>. Keys are label groups. Values are its class members. (Optional)
     # label_names, group_names, domain_names : Dict<int,string> (Optional)
 
     # Model expects everything to be contiguously 0-indexed: classes, domains, label groups.
@@ -76,7 +76,7 @@ class Model(nn.Module):
     def __init__(self, num_classes, num_domains=2, label_groups:dict=None,
                 label_names:dict=None, group_names:dict=None, domain_names:dict=None,
                 base_model:str='resnet34', feature_depth=512,
-                    proto_momentum=0.1):
+                lamb = 0.5, proto_momentum=0.1):
         super().__init__()
 
         # Total no. of features is 1024 according to 
@@ -87,13 +87,8 @@ class Model(nn.Module):
         self.num_classes = num_classes
         self.num_domains = num_domains
         self.num_groups = 0 if label_groups is None else len(label_groups.keys())
+        self.lamb = lamb # lambda hyperparameter
         self.proto_momentum = proto_momentum
-
-        # Membership matrix mapping labels to groups and vice versa
-        self.register_buffer('idx_g2l', torch.zeros((self.num_groups, self.num_classes), dtype=torch.bool))
-        self.register_buffer('idx_l2g', self.idx_g2l.T) # This is just a transposed view of the same matrix
-        for group, label_set in label_groups.items():
-            self.idx_g2l[group][list(label_set)] = 1
 
         # Names
         self.domain_names = domain_names if domain_names is not None else dict(((domain, str(domain)) for domain in range(self.num_domains)))
@@ -103,28 +98,68 @@ class Model(nn.Module):
         else:
             self.label_names = None
             self.group_names = None
+        self._verify_names(silent=False) # If name dict was passed in, make sure it's completely defined.
+
+        # Membership matrix mapping labels to groups and vice versa.
+        self.register_buffer('idx_g2l', torch.zeros((self.num_groups, self.num_classes), dtype=torch.bool))
+        self.register_buffer('idx_l2g', self.idx_g2l.T.contiguous()) # This is just a transposed view of the same matrix
+        for group, label_set in label_groups.items():
+            self.idx_g2l[group][list(label_set)] = 1
         
         # Component layers
         self.extractor = FeatureExtractor(num_domains, base_model)
         self.l2norm = L2NormScaled(c=100, p=0.9)
         self.feat_visual = nn.Linear(self.extractor.out_channels, feature_depth, bias=None)
         self.feat_semantic = nn.Linear(self.extractor.out_channels, feature_depth, bias=None)
-        for param in self.extractor.parameters(): # Freeze extractor
-            param.requires_grad = False
+
         self.da_layers = utils.list_domain_adaptive_layers(self)
 
-        # Prototypes
-        self.proto_class_visual = nn.Parameter(torch.Tensor(num_classes, feature_depth))
-        self.proto_class_semantic = nn.Parameter(torch.Tensor(num_classes, feature_depth))
+        # Centroids or prototypes. Ck = class centroids, Cg = group centroids.
+
+        self.Ck_vis = PrototypeSquaredEuclidean(self.num_classes, feature_depth)
+        self.Ck_sem = PrototypeSquaredEuclidean(self.num_classes, feature_depth)
+
+        # self.register_buffer('Ck_vis', torch.Tensor(num_classes, feature_depth))
+        # self.register_buffer('Ck_vis', torch.Tensor(num_classes, feature_depth))
+        # self.Ck_vis = nn.Parameter(torch.Tensor(feature_depth, num_classes).normal_(mean=0, std=1))
+        # self.Ck_sem = nn.Parameter(torch.Tensor(num_classes, feature_depth).normal_(mean=0, std=1))
         if self.num_groups > 0:
-            self.proto_group_visual = nn.Parameter(torch.Tensor(self.num_groups, feature_depth))
-            self.proto_group_semantic = nn.Parameter(torch.Tensor(self.num_groups, feature_depth))
+            self.Cg_sem = PrototypeSquaredEuclidean(self.num_groups, feature_depth)
+            # self.register_buffer('Cg_vis', torch.Tensor(self.num_groups, feature_depth))
+            # self.register_buffer('Cg_sem', torch.Tensor(self.num_groups, feature_depth))
+            # self.Cg_vis = nn.Parameter(torch.Tensor(self.num_groups, feature_depth).normal_(mean=0, std=1))
+            # self.Cg_sem = nn.Parameter(torch.Tensor(self.num_groups, feature_depth).normal_(mean=0, std=1))
         else:
-            self.register_parameter('proto_group_visual', None)
-            self.register_parameter('proto_group_semantic', None)
+            # self.register_parameter('Cg_vis', None)
+            self.register_parameter('Cg_sem', None)
 
 
-    def set_domain(self, idx_domain):
+
+    def _verify_names(self, silent=False) -> None:
+        for idx in range(self.num_domains):
+            if idx not in self.domain_names:
+                if silent:
+                    self.domain_names[idx] = str(idx)
+                else:
+                    raise KeyError('Missing name for domain {}'.format(idx))
+        for idx in range(self.num_classes):
+            if idx not in self.label_names:
+                if silent:
+                    self.label_names[idx] = str(idx)
+                else:
+                    raise KeyError('Missing name for label {}'.format(idx))
+        for idx in range(self.num_groups):
+            if idx not in self.group_names:
+                if silent:
+                    self.group_names[idx] = str(idx)
+                else:
+                    raise KeyError('Missing name for group {}'.format(idx))
+
+    def reset_running_mean(self) -> None:
+        pass #TODO
+
+
+    def set_domain(self, idx_domain:int) -> None:
         if len(self.da_layers) != 0:
             for layer in self.da_layers:
                 layer.idx_domain.fill_(idx_domain)
@@ -133,8 +168,24 @@ class Model(nn.Module):
     def forward(self, x) -> torch.Tensor:
         x = self.extractor.forward(x)
         x = self.l2norm.forward(x)
-        phi_vis = self.feat_visual.forward(x)
-        phi_sem = self.feat_semantic.forward(x)
-        x = torch.cat((phi_vis, phi_sem), dim=0)
-        return x, phi_vis, phi_sem
+        phix_vis = self.feat_visual.forward(x)
+        phix_sem = self.feat_semantic.forward(x)
+        # phi_x = torch.cat((phi_vis, phi_sem), dim=1)
+
+        # These are L2 distances to centroids of the respective layers.
+        l2_vis = self.Ck_vis.forward(phix_vis)
+        l2_sem = self.Ck_sem.forward(phix_sem)
+
+        # Negative argument because we want a bigger probability when distance is smaller.
+        tmp_vis = F.log_softmax(-l2_vis, dim=1)
+        tmp_sem = F.log_softmax(-l2_sem, dim=1)
+        tmp = self.lamb * tmp_vis + (1-self.lamb) * tmp_sem
+        y_pred = torch.argmax(tmp, dim=1)
+
+        # TODO label group penalty
+        if self.num_groups > 0:
+            pass #TODO
+        
+
+        return y_pred, l2_vis, l2_sem
 

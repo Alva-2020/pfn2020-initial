@@ -177,3 +177,41 @@ class L2NormScaled(nn.Module):
         if input.dim() != 2:
             raise ValueError('expected 2D input (got {}D input). Should be a minbatch of feature vectors.'
                 .format(input.dim()))
+
+
+class PrototypeSquaredEuclidean(nn.Module):
+
+    # Returns Euclidean distance matrix to own prototypes
+
+    def __init__(self, num_prototypes, feature_depth):
+        super().__init__()
+        self.num_prototypes = num_prototypes
+        self.feature_depth = feature_depth
+        self.prototypes = nn.Parameter(torch.Tensor(feature_depth, num_prototypes).normal_(0,1))
+
+    def forward(self, input):
+        # Expects input shape to be (minibatch, feature_depth)
+        # Output shape should be (minibatch, num_prototypes)
+        m1 = input[:,:,None]
+        m2 = self.prototypes[None,:,:]
+
+        x = (m1 - m2) * (m1 - m2)
+        x = torch.sum(x, dim=1)
+        # x = torch.sqrt(x) # Squared Euclidean distance; no square root. Snell 2017 section 2.7.
+        return x
+
+
+class PrototypeCosine(nn.Module):
+    
+    # Returns Cosine distance matrix to own prototypes
+
+    def __init__(self, num_prototypes, feature_depth):
+        super().__init__()
+        self.num_prototypes = num_prototypes
+        self.feature_depth = feature_depth
+        self.prototypes = nn.Parameter(torch.Tensor(feature_depth, num_prototypes).normal_(0,1))
+
+    def forward(self, input):
+        # Expects input shape to be (minibatch, feature_depth)
+        # Output shape should be (minibatch, num_prototypes)
+        return input.matmul(self.prototypes)
