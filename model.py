@@ -193,8 +193,8 @@ class Model(nn.Module):
 
         # Negative argument because we want a bigger probability when distance is smaller.
         # print(l2_vis)
-        tmp_vis = F.softmax(-l2_vis, dim=1)
-        tmp_sem = F.softmax(-l2_sem, dim=1)
+        tmp_vis = F.log_softmax(-l2_vis, dim=1)
+        tmp_sem = F.log_softmax(-l2_sem, dim=1)
 
         soft_y_pred = self.lamb * tmp_vis + (1-self.lamb) * tmp_sem
         y_pred = torch.argmax(soft_y_pred, dim=1)
