@@ -15,7 +15,9 @@ import utils
 
 class FeatureExtractor(nn.Module):
 
+    # Remember that pre-trained ResNet expects whitened inputs based on ImageNet statistics.
     supported_base_models = set([
+        'resnet18',
         'resnet34',
         'resnet50'
     ])
@@ -26,18 +28,26 @@ class FeatureExtractor(nn.Module):
         if base_model not in FeatureExtractor.supported_base_models:
             raise NotImplementedError("Base model {} not supported or registered.".format(base_model))
 
+        if base_model == 'resnet18':
+            base = models.resnet18(pretrained=pretrained)
+            base = utils.convert_to_adaptive_batchnorm(base, num_domains)
+            self.base = nn.Sequential()
+            for name, child in base.named_children():  # We remove all but the last linear layer.
+                if name == 'fc':                       # The last layer we are left with is an AdaptiveAvgPool2d, which gives us
+                    break                              # a single column of 512 features.
+                self.base.add_module(name, child)
+            self.out_channels = 512
+
         if base_model == 'resnet34':
             base = models.resnet34(pretrained=pretrained)
             base = utils.convert_to_adaptive_batchnorm(base, num_domains)
-            # We remove all but the last linear layer.
-            # The last layer we are left with is an AdaptiveAvgPool2d, which gives us
-            # a single column of 512 features.
             self.base = nn.Sequential()
             for name, child in base.named_children():
                 if name == 'fc':
                     break
                 self.base.add_module(name, child)
             self.out_channels = 512
+
         elif base_model == 'resnet50':
             base = models.resnet50(pretrained=pretrained)
             base = utils.convert_to_adaptive_batchnorm(base, num_domains)
@@ -48,6 +58,7 @@ class FeatureExtractor(nn.Module):
                 self.base.add_module(name, child)
             self.out_channels = 512
         else:
+
             pass
             # Add other model definitions here.
     
@@ -92,19 +103,22 @@ class Model(nn.Module):
 
         # Names
         self.domain_names = domain_names if domain_names is not None else dict(((domain, str(domain)) for domain in range(self.num_domains)))
+        self.label_names = label_names if label_names is not None else dict(((label, str(label)) for label in range(self.num_classes)))
         if label_groups is not None:
-            self.label_names = label_names if label_names is not None else dict(((label, str(label)) for label in range(self.num_classes)))
             self.group_names = group_names if group_names is not None else dict(((group, str(group)) for group in range(self.num_groups)))
         else:
-            self.label_names = None
             self.group_names = None
         self._verify_names(silent=False) # If name dict was passed in, make sure it's completely defined.
 
         # Membership matrix mapping labels to groups and vice versa.
-        self.register_buffer('idx_g2l', torch.zeros((self.num_groups, self.num_classes), dtype=torch.bool))
-        for group, label_set in label_groups.items():
-            self.idx_g2l[group][list(label_set)] = 1
-        self.register_buffer('idx_l2g', self.idx_g2l.T.contiguous()) # Contiguous call makes a copy
+        if label_groups is not None:
+            self.register_buffer('idx_g2l', torch.zeros((self.num_groups, self.num_classes), dtype=torch.bool))
+            for group, label_set in label_groups.items():
+                self.idx_g2l[group][list(label_set)] = 1
+            self.register_buffer('idx_l2g', self.idx_g2l.T.contiguous()) # Contiguous call makes a copy
+        else:
+            self.register_parameter('idx_g2l', None)
+            self.register_parameter('idx_l2g', None)
         
         # Component layers
         self.extractor = FeatureExtractor(num_domains, base_model)
@@ -147,12 +161,13 @@ class Model(nn.Module):
                     self.label_names[idx] = str(idx)
                 else:
                     raise KeyError('Missing name for label {}'.format(idx))
-        for idx in range(self.num_groups):
-            if idx not in self.group_names:
-                if silent:
-                    self.group_names[idx] = str(idx)
-                else:
-                    raise KeyError('Missing name for group {}'.format(idx))
+        if self.group_names is not None:
+            for idx in range(self.num_groups):
+                if idx not in self.group_names:
+                    if silent:
+                        self.group_names[idx] = str(idx)
+                    else:
+                        raise KeyError('Missing name for group {}'.format(idx))
 
 
     def reset_running_mean(self) -> None:
@@ -177,15 +192,17 @@ class Model(nn.Module):
         l2_sem = self.Ck_sem.forward(phix_sem)
 
         # Negative argument because we want a bigger probability when distance is smaller.
-        tmp_vis = F.log_softmax(-l2_vis, dim=1)
-        tmp_sem = F.log_softmax(-l2_sem, dim=1)
-        tmp = self.lamb * tmp_vis + (1-self.lamb) * tmp_sem
-        y_pred = torch.argmax(tmp, dim=1)
+        # print(l2_vis)
+        tmp_vis = F.softmax(-l2_vis, dim=1)
+        tmp_sem = F.softmax(-l2_sem, dim=1)
+
+        soft_y_pred = self.lamb * tmp_vis + (1-self.lamb) * tmp_sem
+        y_pred = torch.argmax(soft_y_pred, dim=1)
 
         # TODO label group penalty
         if self.num_groups > 0:
             pass #TODO
         
 
-        return y_pred, l2_vis, l2_sem
+        return y_pred, soft_y_pred, l2_vis, l2_sem
 

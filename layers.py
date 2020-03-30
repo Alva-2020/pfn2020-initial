@@ -180,7 +180,6 @@ class L2NormScaled(nn.Module):
 
 
 class PrototypeSquaredEuclidean(nn.Module):
-
     # Returns Euclidean distance matrix to own prototypes
 
     def __init__(self, num_prototypes, feature_depth):
@@ -202,7 +201,6 @@ class PrototypeSquaredEuclidean(nn.Module):
 
 
 class PrototypeCosine(nn.Module):
-    
     # Returns Cosine distance matrix to own prototypes
 
     def __init__(self, num_prototypes, feature_depth):
