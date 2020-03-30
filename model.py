@@ -102,9 +102,9 @@ class Model(nn.Module):
 
         # Membership matrix mapping labels to groups and vice versa.
         self.register_buffer('idx_g2l', torch.zeros((self.num_groups, self.num_classes), dtype=torch.bool))
-        self.register_buffer('idx_l2g', self.idx_g2l.T.contiguous()) # This is just a transposed view of the same matrix
         for group, label_set in label_groups.items():
             self.idx_g2l[group][list(label_set)] = 1
+        self.register_buffer('idx_l2g', self.idx_g2l.T.contiguous()) # Contiguous call makes a copy
         
         # Component layers
         self.extractor = FeatureExtractor(num_domains, base_model)
@@ -134,7 +134,6 @@ class Model(nn.Module):
             self.register_parameter('Cg_sem', None)
 
 
-
     def _verify_names(self, silent=False) -> None:
         for idx in range(self.num_domains):
             if idx not in self.domain_names:
@@ -154,6 +153,7 @@ class Model(nn.Module):
                     self.group_names[idx] = str(idx)
                 else:
                     raise KeyError('Missing name for group {}'.format(idx))
+
 
     def reset_running_mean(self) -> None:
         pass #TODO

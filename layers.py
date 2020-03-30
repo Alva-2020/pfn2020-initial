@@ -214,4 +214,11 @@ class PrototypeCosine(nn.Module):
     def forward(self, input):
         # Expects input shape to be (minibatch, feature_depth)
         # Output shape should be (minibatch, num_prototypes)
-        return input.matmul(self.prototypes)
+
+        # Cosine distance is (A . B) / ( ||A|| ||B||)
+        # Express as (A / ||A||) . (B / ||B||)
+
+        norm1 = F.normalize(input, p=2, dim=1)
+        norm2 = F.normalize(self.prototypes, p=2, dim=1)
+        x = (input / norm1).matmul(self.prototypes / norm2)
+        return x
