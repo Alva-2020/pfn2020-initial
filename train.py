@@ -77,15 +77,15 @@ def train_mnist():
 
     # Preprocessing
     transform = transforms.Compose([
-        transforms.ToTensor()
         # transforms.Normalize((0.485,0.456,0.406), (0.229,0.224,0.225)), # Don't normalize since MNIST is 1-channel
-        # transforms.Resize((224,224)) # Resize not necessary because of AdaptiveAvg2dPool
+        transforms.Resize((224,224)),
+        transforms.ToTensor()
         # Don't need to do random crops etc for mnist.
     ])
 
     # Data
     feature_depth = 64
-    batch_size = 256
+    batch_size = 64
     n_epochs   = 20
     train_set = torchvision.datasets.MNIST('data/mnist', train=True, download=True, transform=transform)
     val_set   = torchvision.datasets.MNIST('data/mnist', train=False, download=True, transform=transform) # Just use test split for val
@@ -96,12 +96,12 @@ def train_mnist():
     # Model, optim, loss. Define optim before moving model with .to()
     model = Model(num_classes=10, num_domains=2, base_model='resnet18', feature_depth=feature_depth)
     optimizer = optim.Adam(model.parameters(), weight_decay=1e-3)
+    """
     optimizer = optim.Adam([
         {'params': model.feat_visual.parameters()},
-        {'params': model.feat_semantic.parameters()},
-        {'params': model.Ck_vis.parameters(), 'lr': 1e-3},
-        {'params': model.Ck_sem.parameters(), 'lr': 1e-3}
+        {'params': model.feat_semantic.parameters()}
     ], weight_decay=1e-3, lr=1e-3)
+    """
     # optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.5, nesterov=True)
     # lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: (1+(epoch/n_epochs))**0.75) 
     loss_fn = nn.CrossEntropyLoss()
@@ -130,7 +130,7 @@ def train_mnist():
             x = torch.cat((x,x,x), dim=1).to(device, non_blocking=True)
             y = data[1].to(device, non_blocking=True)
 
-            y_pred, soft_y_pred, l2_vis, l2_sem = model.forward(x)
+            y_pred, soft_y_pred = model.forward(x)
             loss = loss_fn(soft_y_pred, y)
 
             # y = y.reshape(-1,1)
@@ -166,7 +166,7 @@ def train_mnist():
             x = torch.cat((x,x,x), dim=1).to(device, non_blocking=True)
             y = data[1].to(device, non_blocking=True)
 
-            y_pred, soft_y_pred, l2_vis, l2_sem = model.forward(x)
+            y_pred, soft_y_pred = model.forward(x)
             loss = loss_fn(soft_y_pred, y)
 
             minibatch += 1

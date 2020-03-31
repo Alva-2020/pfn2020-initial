@@ -9,24 +9,16 @@ import torchvision.transforms as transforms
 
 import numpy as np
 
-from layers import DomainAdaptiveBatchNorm1d, L2NormScaled, PrototypeSquaredEuclidean, PrototypeCosine
+from layers import DomainAdaptiveBatchNorm1d, L2NormScaled, SquaredEuclideanDistLayer
 import utils
 
 
 class FeatureExtractor(nn.Module):
 
     # Remember that pre-trained ResNet expects whitened inputs based on ImageNet statistics.
-    supported_base_models = set([
-        'resnet18',
-        'resnet34',
-        'resnet50'
-    ])
 
     def __init__(self, num_domains=2, base_model='resnet34', pretrained=True):
-        super().__init__()
-
-        if base_model not in FeatureExtractor.supported_base_models:
-            raise NotImplementedError("Base model {} not supported or registered.".format(base_model))
+        super().__init__()          
 
         if base_model == 'resnet18':
             base = models.resnet18(pretrained=pretrained)
@@ -38,7 +30,7 @@ class FeatureExtractor(nn.Module):
                 self.base.add_module(name, child)
             self.out_channels = 512
 
-        if base_model == 'resnet34':
+        elif base_model == 'resnet34':
             base = models.resnet34(pretrained=pretrained)
             base = utils.convert_to_adaptive_batchnorm(base, num_domains)
             self.base = nn.Sequential()
@@ -57,10 +49,11 @@ class FeatureExtractor(nn.Module):
                     break
                 self.base.add_module(name, child)
             self.out_channels = 512
-        else:
 
-            pass
-            # Add other model definitions here.
+        # Add other model definitions here.
+        else:
+            raise NotImplementedError("Base model {} not supported.".format(base_model))
+            
     
         self.flatten = nn.modules.Flatten(start_dim=1)
 
@@ -123,13 +116,16 @@ class Model(nn.Module):
         # Component layers
         self.extractor = FeatureExtractor(num_domains, base_model)
         self.l2norm = L2NormScaled(c=100, p=0.9)
-        self.feat_visual = nn.Linear(self.extractor.out_channels, feature_depth, bias=None)
-        self.feat_semantic = nn.Linear(self.extractor.out_channels, feature_depth, bias=None)
+
+        # self.feat_visual = nn.Linear(self.extractor.out_channels, feature_depth, bias=None)
+        # self.feat_semantic = nn.Linear(self.extractor.out_channels, feature_depth, bias=None)
+        self.feat_visual = SquaredEuclideanDistLayer(self.extractor.out_channels, feature_depth)
+        self.feat_semantic = SquaredEuclideanDistLayer(self.extractor.out_channels, feature_depth)
 
         self.da_layers = utils.list_domain_adaptive_layers(self)
 
+        """
         # Centroids or prototypes. Ck = class centroids, Cg = group centroids.
-
         self.Ck_vis = PrototypeSquaredEuclidean(self.num_classes, feature_depth)
         self.Ck_sem = PrototypeSquaredEuclidean(self.num_classes, feature_depth)
 
@@ -146,6 +142,7 @@ class Model(nn.Module):
         else:
             # self.register_parameter('Cg_vis', None)
             self.register_parameter('Cg_sem', None)
+        """
 
 
     def _verify_names(self, silent=False) -> None:
@@ -188,13 +185,15 @@ class Model(nn.Module):
         # phi_x = torch.cat((phi_vis, phi_sem), dim=1)
 
         # These are L2 distances to centroids of the respective layers.
-        l2_vis = self.Ck_vis.forward(phix_vis)
-        l2_sem = self.Ck_sem.forward(phix_sem)
+        # l2_vis = self.Ck_vis.forward(phix_vis)
+        # l2_sem = self.Ck_sem.forward(phix_sem)
 
         # Negative argument because we want a bigger probability when distance is smaller.
-        # print(l2_vis)
-        tmp_vis = F.log_softmax(-l2_vis, dim=1)
-        tmp_sem = F.log_softmax(-l2_sem, dim=1)
+        # tmp_vis = F.log_softmax(-l2_vis, dim=1)
+        # tmp_sem = F.log_softmax(-l2_sem, dim=1)
+
+        tmp_vis = F.softmax(-phix_vis, dim=1)
+        tmp_sem = F.softmax(-phix_vis, dim=1)
 
         soft_y_pred = self.lamb * tmp_vis + (1-self.lamb) * tmp_sem
         y_pred = torch.argmax(soft_y_pred, dim=1)
@@ -204,5 +203,5 @@ class Model(nn.Module):
             pass #TODO
         
 
-        return y_pred, soft_y_pred, l2_vis, l2_sem
+        return y_pred, soft_y_pred
 
