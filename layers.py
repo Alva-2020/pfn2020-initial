@@ -179,35 +179,34 @@ class L2NormScaled(nn.Module):
                 .format(input.dim()))
 
 
-class PrototypeSquaredEuclidean(nn.Module):
-    # Returns Euclidean distance matrix to own prototypes
+class SquaredEuclideanDistLayer(nn.Linear):
+    # Takes input and computes squared Euclidean distance.
+    # Otherwise identical to a Linear layer without bias.
 
-    def __init__(self, num_prototypes, feature_depth):
-        super().__init__()
-        self.num_prototypes = num_prototypes
-        self.feature_depth = feature_depth
-        self.prototypes = nn.Parameter(torch.Tensor(feature_depth, num_prototypes).normal_(0,1))
+    def __init__(self, in_features, out_features):
+        super().__init__(in_features, out_features)
+        self.weight = nn.Parameter(torch.Tensor(in_features, out_features))
+        self.reset_parameters()
 
     def forward(self, input):
         # Expects input shape to be (minibatch, feature_depth)
         # Output shape should be (minibatch, num_prototypes)
         m1 = input[:,:,None]
-        m2 = self.prototypes[None,:,:]
-
+        m2 = self.weight[None,:,:]
         x = (m1 - m2) * (m1 - m2)
         x = torch.sum(x, dim=1)
         # x = torch.sqrt(x) # Squared Euclidean distance; no square root. Snell 2017 section 2.7.
         return x
 
 
-class PrototypeCosine(nn.Module):
-    # Returns Cosine distance matrix to own prototypes
+class CosineDistLayer(nn.Linear):
+    # Takes input and computes cosine distance.
+    # Otherwise identical to a Linear layer without bias.
 
-    def __init__(self, num_prototypes, feature_depth):
-        super().__init__()
-        self.num_prototypes = num_prototypes
-        self.feature_depth = feature_depth
-        self.prototypes = nn.Parameter(torch.Tensor(feature_depth, num_prototypes).normal_(0,1))
+    def __init__(self, in_features, out_features):
+        super().__init__(in_features, out_features)
+        self.weight = nn.Parameter(torch.Tensor(in_features, out_features))
+        self.reset_parameters()
 
     def forward(self, input):
         # Expects input shape to be (minibatch, feature_depth)
@@ -215,8 +214,21 @@ class PrototypeCosine(nn.Module):
 
         # Cosine distance is (A . B) / ( ||A|| ||B||)
         # Express as (A / ||A||) . (B / ||B||)
-
         norm1 = F.normalize(input, p=2, dim=1)
-        norm2 = F.normalize(self.prototypes, p=2, dim=1)
-        x = (input / norm1).matmul(self.prototypes / norm2)
+        norm2 = F.normalize(self.weight, p=2, dim=1)
+        x = (input / norm1).matmul(self.weight / norm2)
         return x
+
+"""
+class ZeroLayer(nn.Module):
+    # Returns zero regardless of input.
+
+    def __init__(self, out_features):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(torch.zeros(out_features, dtype=torch.float)).requires_grad(False)
+
+    def forward(self, input):
+        return self.weight
+"""
