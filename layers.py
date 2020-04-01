@@ -179,15 +179,14 @@ class L2NormScaled(nn.Module):
                 .format(input.dim()))
 
 
-class SquaredEuclideanDistLayer(nn.Module):
+class SquaredEuclideanDistLayer(nn.Linear):
     # Takes input and computes squared Euclidean distance.
     # Otherwise identical to a Linear layer without bias.
 
     def __init__(self, in_features, out_features):
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
+        super().__init__(in_features, out_features)
         self.weight = nn.Parameter(torch.Tensor(in_features, out_features))
+        self.reset_parameters()
 
     def forward(self, input):
         # Expects input shape to be (minibatch, feature_depth)
@@ -200,15 +199,14 @@ class SquaredEuclideanDistLayer(nn.Module):
         return x
 
 
-class CosineDistLayer(nn.Module):
+class CosineDistLayer(nn.Linear):
     # Takes input and computes cosine distance.
     # Otherwise identical to a Linear layer without bias.
 
     def __init__(self, in_features, out_features):
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
+        super().__init__(in_features, out_features)
         self.weight = nn.Parameter(torch.Tensor(in_features, out_features))
+        self.reset_parameters()
 
     def forward(self, input):
         # Expects input shape to be (minibatch, feature_depth)
@@ -220,3 +218,17 @@ class CosineDistLayer(nn.Module):
         norm2 = F.normalize(self.weight, p=2, dim=1)
         x = (input / norm1).matmul(self.weight / norm2)
         return x
+
+"""
+class ZeroLayer(nn.Module):
+    # Returns zero regardless of input.
+
+    def __init__(self, out_features):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(torch.zeros(out_features, dtype=torch.float)).requires_grad(False)
+
+    def forward(self, input):
+        return self.weight
+"""
