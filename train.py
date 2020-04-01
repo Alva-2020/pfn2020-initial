@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -48,11 +50,14 @@ def train_mnist():
     feature_depth = 64
     batch_size = 256
     n_epochs   = 20
+
+    num_workers = 0 if os.name == 'nt' else 8
+
     train_set = torchvision.datasets.MNIST('data/mnist', train=True, download=True, transform=transform)
     val_set   = torchvision.datasets.MNIST('data/mnist', train=False, download=True, transform=transform) # Just use test split for val
     # No need for samplers.
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
-    val_loader   = DataLoader(val_set,   batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+    val_loader   = DataLoader(val_set,   batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
 
     # Model, optim, loss. Define optim before moving model with .to()
     model = Model(num_classes=10, num_domains=2, base_model='resnet18', feature_depth=feature_depth)
