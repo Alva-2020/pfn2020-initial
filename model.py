@@ -18,7 +18,10 @@ class FeatureExtractor(nn.Module):
     # Remember that pre-trained ResNet expects whitened inputs based on ImageNet statistics.
 
     def __init__(self, num_domains=2, base_model='resnet34', pretrained=True):
-        super().__init__()          
+        super().__init__()
+
+        self.base = None
+        self.out_channels = None
 
         if base_model == 'resnet18':
             base = models.resnet18(pretrained=pretrained)
@@ -53,7 +56,11 @@ class FeatureExtractor(nn.Module):
         # Add other model definitions here.
         else:
             raise NotImplementedError("Base model {} not supported.".format(base_model))
-            
+
+        if self.base is None:
+            raise NotImplementedError("self.base is None. Needs to be nn.Module.")
+        if self.out_channels is None:
+            raise NotImplementedError("self.out_channels is None. Needs to be defined.")
     
         self.flatten = nn.modules.Flatten(start_dim=1)
 
@@ -113,28 +120,22 @@ class Model(nn.Module):
             self.register_parameter('idx_g2l', None)
             self.register_parameter('idx_l2g', None)
         
-        # Component layers
+        # Layers
         self.extractor = FeatureExtractor(num_domains, base_model)
         self.l2norm = L2NormScaled(c=100, p=0.9)
 
-        # self.feat_visual = nn.Linear(self.extractor.out_channels, feature_depth, bias=None)
-        # self.feat_semantic = nn.Linear(self.extractor.out_channels, feature_depth, bias=None)
-        self.feat_visual = SquaredEuclideanDistLayer(self.extractor.out_channels, feature_depth)
-        self.feat_semantic = SquaredEuclideanDistLayer(self.extractor.out_channels, feature_depth)
+        # Feature space
+        self.feat_visual = nn.Linear(self.extractor.out_channels, feature_depth, bias=None)
+        self.feat_semantic = nn.Linear(self.extractor.out_channels, feature_depth, bias=None)
 
         self.da_layers = utils.list_domain_adaptive_layers(self)
 
-        """
         # Centroids or prototypes. Ck = class centroids, Cg = group centroids.
-        self.Ck_vis = PrototypeSquaredEuclidean(self.num_classes, feature_depth)
-        self.Ck_sem = PrototypeSquaredEuclidean(self.num_classes, feature_depth)
+        self.Ck_vis = SquaredEuclideanDistLayer(feature_depth, self.num_classes)
+        self.Ck_sem = SquaredEuclideanDistLayer(feature_depth, self.num_classes)
 
-        # self.register_buffer('Ck_vis', torch.Tensor(num_classes, feature_depth))
-        # self.register_buffer('Ck_vis', torch.Tensor(num_classes, feature_depth))
-        # self.Ck_vis = nn.Parameter(torch.Tensor(feature_depth, num_classes).normal_(mean=0, std=1))
-        # self.Ck_sem = nn.Parameter(torch.Tensor(num_classes, feature_depth).normal_(mean=0, std=1))
         if self.num_groups > 0:
-            self.Cg_sem = PrototypeSquaredEuclidean(self.num_groups, feature_depth)
+            self.Cg_sem = SquaredEuclideanDistLayer(feature_depth, self.num_groups)
             # self.register_buffer('Cg_vis', torch.Tensor(self.num_groups, feature_depth))
             # self.register_buffer('Cg_sem', torch.Tensor(self.num_groups, feature_depth))
             # self.Cg_vis = nn.Parameter(torch.Tensor(self.num_groups, feature_depth).normal_(mean=0, std=1))
@@ -142,7 +143,6 @@ class Model(nn.Module):
         else:
             # self.register_parameter('Cg_vis', None)
             self.register_parameter('Cg_sem', None)
-        """
 
 
     def _verify_names(self, silent=False) -> None:
@@ -185,15 +185,15 @@ class Model(nn.Module):
         # phi_x = torch.cat((phi_vis, phi_sem), dim=1)
 
         # These are L2 distances to centroids of the respective layers.
-        # l2_vis = self.Ck_vis.forward(phix_vis)
-        # l2_sem = self.Ck_sem.forward(phix_sem)
+        l2_vis = self.Ck_vis.forward(phix_vis)
+        l2_sem = self.Ck_sem.forward(phix_sem)
 
         # Negative argument because we want a bigger probability when distance is smaller.
         # tmp_vis = F.log_softmax(-l2_vis, dim=1)
         # tmp_sem = F.log_softmax(-l2_sem, dim=1)
 
-        tmp_vis = F.softmax(-phix_vis, dim=1)
-        tmp_sem = F.softmax(-phix_vis, dim=1)
+        tmp_vis = F.softmax(-l2_vis, dim=1)
+        tmp_sem = F.softmax(-l2_sem, dim=1)
 
         soft_y_pred = self.lamb * tmp_vis + (1-self.lamb) * tmp_sem
         y_pred = torch.argmax(soft_y_pred, dim=1)
