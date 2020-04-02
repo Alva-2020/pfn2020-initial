@@ -1,8 +1,4 @@
 *.pyc
 
-data/mnist/*
-!data/mnist/.gitkeep
-
-data/officehome/*
-!data/officehome/.gitkeep
-
+data/*
+!data/.gitkeep

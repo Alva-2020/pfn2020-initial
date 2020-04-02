@@ -92,8 +92,9 @@ class Model(nn.Module):
 
         # Total no. of features is 1024 according to 
         #  Snell et al 2017. Prototypical Networks for Few-shot Learning. Section 3.3 on Caltech-UCSD birds
-        # Whatever it's set to, we split 1/2 between semantic and visual features.
-        feature_depth = feature_depth // 2
+
+        feature_depth = num_classes  # for now this is necessary. Tweak last layer later
+        assert feature_depth == num_classes
 
         self.num_classes = num_classes
         self.num_domains = num_domains
@@ -189,11 +190,11 @@ class Model(nn.Module):
         l2_sem = self.Ck_sem.forward(phix_sem)
 
         # Negative argument because we want a bigger probability when distance is smaller.
-        # tmp_vis = F.log_softmax(-l2_vis, dim=1)
-        # tmp_sem = F.log_softmax(-l2_sem, dim=1)
+        # tmp_vis = F.log_softmax(-phix_vis, dim=1)
+        # tmp_sem = F.log_softmax(-phix_sem, dim=1)
 
-        tmp_vis = F.softmax(-l2_vis, dim=1)
-        tmp_sem = F.softmax(-l2_sem, dim=1)
+        tmp_vis = F.log_softmax(-l2_vis, dim=1)
+        tmp_sem = F.log_softmax(-l2_sem, dim=1)
 
         soft_y_pred = self.lamb * tmp_vis + (1-self.lamb) * tmp_sem
         y_pred = torch.argmax(soft_y_pred, dim=1)

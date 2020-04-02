@@ -3,6 +3,7 @@ import csv
 import os
 from pathlib import Path
 
+# DEPRECATED. Load directly into dataset. see dataset.py
 
 def list_dataset(dataset_name:str) -> int:
     r"""Creates the following files in data/dataset/list/, given a dataset name.
